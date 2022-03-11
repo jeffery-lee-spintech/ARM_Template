@@ -1,0 +1,910 @@
+{
+    "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+    "contentVersion": "1.0.0.0",
+    "parameters": {
+        "logicAppName": {
+            "defaultValue": "lga-daily-csa-teams-report",
+            "type": "String",
+						"metadata": {
+              "description": "논리 앱 이름"
+            }
+        },
+        "reportHour": {
+            "defaultValue": "8",
+            "type": "String",
+			"minLength": 1,
+			"maxLength": 2,
+            "metadata": {
+                "description": "보고 시간 (시: 0~23)"
+            }
+        },
+        "reportMinute": {
+            "defaultValue": "55",
+            "type": "String",
+			"minLength": 1,
+			"maxLength": 2,
+            "metadata": {
+                "description": "보고 시간 (분 : 0~59)"
+            }
+        },
+        "reporterName": {
+            "type": "String",
+            "metadata": {
+                "description": "보고자명"
+            }
+        },
+        "personalAccessToken": {
+            "type": "securestring",
+            "metadata": {
+                "description": "DevOps PAT"
+            }
+        }
+    },
+    "variables": {},
+    "resources": [
+        {
+            "type": "Microsoft.Logic/workflows",
+            "apiVersion": "2017-07-01",
+            "name": "[parameters('logicAppName')]",
+            "location": "Korea Central",
+            "tags": {
+                "resource-group": "rg-teams-report"
+            },
+            "properties": {
+                "state": "Disabled",
+                "definition": {
+                    "$schema": "https://schema.management.azure.com/providers/Microsoft.Logic/schemas/2016-06-01/workflowdefinition.json#",
+                    "contentVersion": "1.0.0.0",
+                    "parameters": {
+                        "$connections": {
+                            "defaultValue": {},
+                            "type": "Object"
+                        }
+                    },
+                    "triggers": {
+                        "되풀이": {
+                            "recurrence": {
+                                "frequency": "Day",
+                                "interval": 1,
+                                "schedule": {
+                                    "hours": [
+                                        "[parameters('reportHour')]"
+                                    ],
+                                    "minutes": [
+                                        "[parameters('reportMinute')]"
+                                    ]
+                                },
+                                "timeZone": "Korea Standard Time"
+                            },
+                            "evaluatedRecurrence": {
+                                "frequency": "Day",
+                                "interval": 1,
+                                "schedule": {
+                                    "hours": [
+                                        "[parameters('reportHour')]"
+                                    ],
+                                    "minutes": [
+                                        "[parameters('reportMinute')]"
+                                    ]
+                                },
+                                "timeZone": "Korea Standard Time"
+                            },
+                            "type": "Recurrence"
+                        }
+                    },
+                    "actions": {
+                        "Work_Item_Response_List_구조_Json_구문_분석": {
+                            "runAfter": {
+                                "변수_정의_:_Work_Item_Response": [
+                                    "Succeeded"
+                                ]
+                            },
+                            "type": "ParseJson",
+                            "inputs": {
+                                "content": "@variables('WorkItemResponse')",
+                                "schema": {
+                                    "properties": {
+                                        "asOf": {
+                                            "type": "string"
+                                        },
+                                        "columns": {
+                                            "items": {
+                                                "properties": {
+                                                    "name": {
+                                                        "type": "string"
+                                                    },
+                                                    "referenceName": {
+                                                        "type": "string"
+                                                    },
+                                                    "url": {
+                                                        "type": "string"
+                                                    }
+                                                },
+                                                "required": [
+                                                    "referenceName",
+                                                    "name",
+                                                    "url"
+                                                ],
+                                                "type": "object"
+                                            },
+                                            "type": "array"
+                                        },
+                                        "queryResultType": {
+                                            "type": "string"
+                                        },
+                                        "queryType": {
+                                            "type": "string"
+                                        },
+                                        "sortColumns": {
+                                            "items": {
+                                                "properties": {
+                                                    "descending": {
+                                                        "type": "boolean"
+                                                    },
+                                                    "field": {
+                                                        "properties": {
+                                                            "name": {
+                                                                "type": "string"
+                                                            },
+                                                            "referenceName": {
+                                                                "type": "string"
+                                                            },
+                                                            "url": {
+                                                                "type": "string"
+                                                            }
+                                                        },
+                                                        "type": "object"
+                                                    }
+                                                },
+                                                "required": [
+                                                    "field",
+                                                    "descending"
+                                                ],
+                                                "type": "object"
+                                            },
+                                            "type": "array"
+                                        },
+                                        "workItemRelations": {
+                                            "items": {
+                                                "properties": {
+                                                    "rel": {},
+                                                    "source": {},
+                                                    "target": {
+                                                        "properties": {
+                                                            "id": {
+                                                                "type": "integer"
+                                                            },
+                                                            "url": {
+                                                                "type": "string"
+                                                            }
+                                                        },
+                                                        "type": "object"
+                                                    }
+                                                },
+                                                "required": [
+                                                    "rel",
+                                                    "source",
+                                                    "target"
+                                                ],
+                                                "type": "object"
+                                            },
+                                            "type": "array"
+                                        }
+                                    },
+                                    "type": "object"
+                                }
+                            }
+                        },
+                        "Work_Item_조회": {
+                            "runAfter": {
+                                "변수_정의_:_조회_쿼리_ID": [
+                                    "Succeeded"
+                                ]
+                            },
+                            "type": "Http",
+                            "inputs": {
+                                "headers": {
+                                    "Accept": "application/json",
+                                    "Authorization": "Basic @{variables('Base64EncodePat')}"
+                                },
+                                "method": "GET",
+                                "uri": "@{variables('ApiUrl')}/@{variables('DevOpsOrg')}/@{variables('DevOpsProjectName')}/@{variables('TeamName')}/_apis/wit/wiql/@{variables('TitleQueryId')}?api-version=@{variables('ApiVersion')}"
+                            }
+                        },
+                        "다음_시간까지:": {
+                            "actions": {
+                                "변수_증가_4": {
+                                    "runAfter": {
+                                        "조건": [
+                                            "Succeeded"
+                                        ]
+                                    },
+                                    "type": "IncrementVariable",
+                                    "inputs": {
+                                        "name": "Cnt",
+                                        "value": 1
+                                    }
+                                },
+                                "조건": {
+                                    "actions": {
+                                        "배열_변수에_추가": {
+                                            "runAfter": {},
+                                            "type": "AppendToArrayVariable",
+                                            "inputs": {
+                                                "name": "ReportWorkItemArr",
+                                                "value": {
+                                                    "idx": "@iterationIndexes('다음_시간까지:')",
+                                                    "indent": "<br>",
+                                                    "url": "@variables('WorkItemRelationList')[iterationIndexes('다음_시간까지:')]?['target']?['url']",
+                                                    "workItemId": "@variables('WorkItemRelationList')[iterationIndexes('다음_시간까지:')]?['target']?['id']"
+                                                }
+                                            }
+                                        }
+                                    },
+                                    "runAfter": {},
+                                    "else": {
+                                        "actions": {
+                                            "배열_변수에_추가_2": {
+                                                "runAfter": {},
+                                                "type": "AppendToArrayVariable",
+                                                "inputs": {
+                                                    "name": "ReportWorkItemArr",
+                                                    "value": {
+                                                        "idx": "@iterationIndexes('다음_시간까지:')",
+                                                        "indent": "<br>　　- ",
+                                                        "url": "@variables('WorkItemRelationList')[iterationIndexes('다음_시간까지:')]?['target']?['url']",
+                                                        "workItemId": "@variables('WorkItemRelationList')[iterationIndexes('다음_시간까지:')]?['target']?['id']"
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    },
+                                    "expression": {
+                                        "and": [
+                                            {
+                                                "equals": [
+                                                    "@variables('WorkItemRelationList')[iterationIndexes('다음_시간까지:')]?['source']",
+                                                    "@null"
+                                                ]
+                                            }
+                                        ]
+                                    },
+                                    "type": "If"
+                                }
+                            },
+                            "runAfter": {
+                                "변수_초기화": [
+                                    "Succeeded"
+                                ]
+                            },
+                            "expression": "@lessOrEquals(variables('Cnt2'), variables('Cnt'))",
+                            "limit": {
+                                "count": 60,
+                                "timeout": "PT1H"
+                            },
+                            "type": "Until"
+                        },
+                        "다음_시간까지:_2": {
+                            "actions": {
+                                "HTTP": {
+                                    "runAfter": {},
+                                    "type": "Http",
+                                    "inputs": {
+                                        "headers": {
+                                            "Accept": "application/json",
+                                            "Authorization": "Basic @{variables('Base64EncodePat')}"
+                                        },
+                                        "method": "GET",
+                                        "uri": "@{variables('ReportWorkItemArr')[iterationIndexes('다음_시간까지:_2')]?['url']}?fields=System.Title&api-version=@{variables('ApiVersion')}"
+                                    }
+                                },
+                                "JSON_구문_분석": {
+                                    "runAfter": {
+                                        "변수_설정_2": [
+                                            "Succeeded"
+                                        ]
+                                    },
+                                    "type": "ParseJson",
+                                    "inputs": {
+                                        "content": "@variables('TitleResponse')",
+                                        "schema": {
+                                            "properties": {
+                                                "_links": {
+                                                    "properties": {
+                                                        "fields": {
+                                                            "properties": {
+                                                                "href": {
+                                                                    "type": "string"
+                                                                }
+                                                            },
+                                                            "type": "object"
+                                                        },
+                                                        "html": {
+                                                            "properties": {
+                                                                "href": {
+                                                                    "type": "string"
+                                                                }
+                                                            },
+                                                            "type": "object"
+                                                        },
+                                                        "self": {
+                                                            "properties": {
+                                                                "href": {
+                                                                    "type": "string"
+                                                                }
+                                                            },
+                                                            "type": "object"
+                                                        },
+                                                        "workItemComments": {
+                                                            "properties": {
+                                                                "href": {
+                                                                    "type": "string"
+                                                                }
+                                                            },
+                                                            "type": "object"
+                                                        },
+                                                        "workItemRevisions": {
+                                                            "properties": {
+                                                                "href": {
+                                                                    "type": "string"
+                                                                }
+                                                            },
+                                                            "type": "object"
+                                                        },
+                                                        "workItemType": {
+                                                            "properties": {
+                                                                "href": {
+                                                                    "type": "string"
+                                                                }
+                                                            },
+                                                            "type": "object"
+                                                        },
+                                                        "workItemUpdates": {
+                                                            "properties": {
+                                                                "href": {
+                                                                    "type": "string"
+                                                                }
+                                                            },
+                                                            "type": "object"
+                                                        }
+                                                    },
+                                                    "type": "object"
+                                                },
+                                                "fields": {
+                                                    "properties": {
+                                                        "System.Title": {
+                                                            "type": "string"
+                                                        }
+                                                    },
+                                                    "type": "object"
+                                                },
+                                                "id": {
+                                                    "type": "integer"
+                                                },
+                                                "rev": {
+                                                    "type": "integer"
+                                                },
+                                                "url": {
+                                                    "type": "string"
+                                                }
+                                            },
+                                            "type": "object"
+                                        }
+                                    }
+                                },
+                                "배열_변수에_추가_3": {
+                                    "runAfter": {
+                                        "JSON_구문_분석": [
+                                            "Succeeded"
+                                        ]
+                                    },
+                                    "type": "AppendToArrayVariable",
+                                    "inputs": {
+                                        "name": "TitleList",
+                                        "value": "@body('JSON_구문_분석')?['fields']?['System.Title']"
+                                    }
+                                },
+                                "변수_설정_2": {
+                                    "runAfter": {
+                                        "HTTP": [
+                                            "Succeeded"
+                                        ]
+                                    },
+                                    "type": "SetVariable",
+                                    "inputs": {
+                                        "name": "TitleResponse",
+                                        "value": "@body('HTTP')"
+                                    }
+                                },
+                                "변수_증가": {
+                                    "runAfter": {
+                                        "배열_변수에_추가_3": [
+                                            "Succeeded"
+                                        ]
+                                    },
+                                    "type": "IncrementVariable",
+                                    "inputs": {
+                                        "name": "Cnt",
+                                        "value": 1
+                                    }
+                                }
+                            },
+                            "runAfter": {
+                                "변수_초기화_3": [
+                                    "Succeeded"
+                                ]
+                            },
+                            "expression": "@lessOrEquals(variables('Cnt2'), variables('Cnt'))",
+                            "limit": {
+                                "count": 20,
+                                "timeout": "PT1H"
+                            },
+                            "type": "Until"
+                        },
+                        "다음_시간까지:_3": {
+                            "actions": {
+                                "문자열_변수에_추가": {
+                                    "runAfter": {},
+                                    "type": "AppendToStringVariable",
+                                    "inputs": {
+                                        "name": "ReportString",
+                                        "value": "@variables('ReportWorkItemArr')[iterationIndexes('다음_시간까지:_3')]?['indent']"
+                                    }
+                                },
+                                "문자열_변수에_추가_2": {
+                                    "runAfter": {
+                                        "문자열_변수에_추가": [
+                                            "Succeeded"
+                                        ]
+                                    },
+                                    "type": "AppendToStringVariable",
+                                    "inputs": {
+                                        "name": "ReportString",
+                                        "value": "@variables('TitleList')[iterationIndexes('다음_시간까지:_3')]"
+                                    }
+                                },
+                                "변수_증가_2": {
+                                    "runAfter": {
+                                        "문자열_변수에_추가_2": [
+                                            "Succeeded"
+                                        ]
+                                    },
+                                    "type": "IncrementVariable",
+                                    "inputs": {
+                                        "name": "Cnt",
+                                        "value": 1
+                                    }
+                                }
+                            },
+                            "runAfter": {
+                                "변수_설정_3": [
+                                    "Succeeded"
+                                ]
+                            },
+                            "expression": "@lessOrEquals(variables('Cnt2'), variables('Cnt'))",
+                            "limit": {
+                                "count": 20,
+                                "timeout": "PT1H"
+                            },
+                            "type": "Until"
+                        },
+                        "변수_설정": {
+                            "runAfter": {
+                                "다음_시간까지:": [
+                                    "Succeeded"
+                                ]
+                            },
+                            "type": "SetVariable",
+                            "inputs": {
+                                "name": "Cnt",
+                                "value": 0
+                            }
+                        },
+                        "변수_설정_3": {
+                            "runAfter": {
+                                "변수_초기화_4": [
+                                    "Succeeded"
+                                ]
+                            },
+                            "type": "SetVariable",
+                            "inputs": {
+                                "name": "Cnt",
+                                "value": 0
+                            }
+                        },
+                        "변수_정의_:_API_Version": {
+                            "runAfter": {
+                                "변수_정의_:_DevOps_API_URL": [
+                                    "Succeeded"
+                                ]
+                            },
+                            "type": "InitializeVariable",
+                            "inputs": {
+                                "variables": [
+                                    {
+                                        "name": "ApiVersion",
+                                        "type": "string",
+                                        "value": "6.1-preview.2"
+                                    }
+                                ]
+                            }
+                        },
+                        "변수_정의_:_DevOps_API_URL": {
+                            "runAfter": {
+                                "변수_정의_:_PAT_Base_64_Encoding": [
+                                    "Succeeded"
+                                ]
+                            },
+                            "type": "InitializeVariable",
+                            "inputs": {
+                                "variables": [
+                                    {
+                                        "name": "ApiUrl",
+                                        "type": "string",
+                                        "value": "https://dev.azure.com"
+                                    }
+                                ]
+                            }
+                        },
+                        "변수_정의_:_DevOps_프로젝트명": {
+                            "runAfter": {
+                                "변수_정의_:_DevOps조직명": [
+                                    "Succeeded"
+                                ]
+                            },
+                            "type": "InitializeVariable",
+                            "inputs": {
+                                "variables": [
+                                    {
+                                        "name": "DevOpsProjectName",
+                                        "type": "string",
+                                        "value": "SPIN_CSA_Common_Project"
+                                    }
+                                ]
+                            }
+                        },
+                        "변수_정의_:_DevOps조직명": {
+                            "runAfter": {
+                                "변수_정의_:_API_Version": [
+                                    "Succeeded"
+                                ]
+                            },
+                            "type": "InitializeVariable",
+                            "inputs": {
+                                "variables": [
+                                    {
+                                        "name": "DevOpsOrg",
+                                        "type": "string",
+                                        "value": "spintechcsa"
+                                    }
+                                ]
+                            }
+                        },
+                        "변수_정의_:_PAT": {
+                            "runAfter": {
+                                "변수_정의_:_보고자명": [
+                                    "Succeeded"
+                                ]
+                            },
+                            "type": "InitializeVariable",
+                            "inputs": {
+                                "variables": [
+                                    {
+                                        "name": "PersonalAccessToken",
+                                        "type": "string",
+                                        "value": "[parameters('personalAccessToken')]"
+                                    }
+                                ]
+                            },
+                            "description": "이 부분만 수정해 주세요"
+                        },
+                        "변수_정의_:_PAT_Base_64_Encoding": {
+                            "runAfter": {
+                                "변수_정의_:_PAT": [
+                                    "Succeeded"
+                                ]
+                            },
+                            "type": "InitializeVariable",
+                            "inputs": {
+                                "variables": [
+                                    {
+                                        "name": "Base64EncodePat",
+                                        "type": "string",
+                                        "value": "@{base64(concat(':',variables('PersonalAccessToken')))}"
+                                    }
+                                ]
+                            }
+                        },
+                        "변수_정의_:_WorkItemRelationList": {
+                            "runAfter": {
+                                "Work_Item_Response_List_구조_Json_구문_분석": [
+                                    "Succeeded"
+                                ]
+                            },
+                            "type": "InitializeVariable",
+                            "inputs": {
+                                "variables": [
+                                    {
+                                        "name": "WorkItemRelationList",
+                                        "type": "array",
+                                        "value": "@body('Work_Item_Response_List_구조_Json_구문_분석')?['workItemRelations']"
+                                    }
+                                ]
+                            }
+                        },
+                        "변수_정의_:_Work_Item_Response": {
+                            "runAfter": {
+                                "Work_Item_조회": [
+                                    "Succeeded"
+                                ]
+                            },
+                            "type": "InitializeVariable",
+                            "inputs": {
+                                "variables": [
+                                    {
+                                        "name": "WorkItemResponse",
+                                        "type": "object",
+                                        "value": "@body('Work_Item_조회')"
+                                    }
+                                ]
+                            }
+                        },
+                        "변수_정의_:_보고용_데이터_배열": {
+                            "runAfter": {
+                                "변수_정의_:_WorkItemRelationList": [
+                                    "Succeeded"
+                                ]
+                            },
+                            "type": "InitializeVariable",
+                            "inputs": {
+                                "variables": [
+                                    {
+                                        "name": "ReportWorkItemArr",
+                                        "type": "array"
+                                    }
+                                ]
+                            }
+                        },
+                        "변수_정의_:_보고자명": {
+                            "runAfter": {
+                                "주말_처리_조건": [
+                                    "Succeeded"
+                                ]
+                            },
+                            "type": "InitializeVariable",
+                            "inputs": {
+                                "variables": [
+                                    {
+                                        "name": "ReporterName",
+                                        "type": "string",
+                                        "value": "[parameters('reporterName')]"
+                                    }
+                                ]
+                            },
+                            "description": "이 부분만 수정해 주세요"
+                        },
+                        "변수_정의_:_오늘_일자_요일_번호_설정": {
+                            "runAfter": {
+                                "변수_정의_:_오늘일자_설정": [
+                                    "Succeeded"
+                                ]
+                            },
+                            "type": "InitializeVariable",
+                            "inputs": {
+                                "variables": [
+                                    {
+                                        "name": "WeekDateNum",
+                                        "type": "integer",
+                                        "value": "@dayOfWeek(variables('TodayStr'))"
+                                    }
+                                ]
+                            }
+                        },
+                        "변수_정의_:_오늘일자_설정": {
+                            "runAfter": {},
+                            "type": "InitializeVariable",
+                            "inputs": {
+                                "variables": [
+                                    {
+                                        "name": "TodayStr",
+                                        "type": "string",
+                                        "value": "@convertFromUtc(utcNow(), 'Korea Standard Time')"
+                                    }
+                                ]
+                            }
+                        },
+                        "변수_정의_:_제목_응답용_객체": {
+                            "runAfter": {
+                                "변수_정의_:_카운터": [
+                                    "Succeeded"
+                                ]
+                            },
+                            "type": "InitializeVariable",
+                            "inputs": {
+                                "variables": [
+                                    {
+                                        "name": "TitleResponseObject",
+                                        "type": "object"
+                                    }
+                                ]
+                            }
+                        },
+                        "변수_정의_:_제목_조회_URL": {
+                            "runAfter": {
+                                "변수_정의_:_제목_응답용_객체": [
+                                    "Succeeded"
+                                ]
+                            },
+                            "type": "InitializeVariable",
+                            "inputs": {
+                                "variables": [
+                                    {
+                                        "name": "TitleUrl",
+                                        "type": "string"
+                                    }
+                                ]
+                            }
+                        },
+                        "변수_정의_:_조회_쿼리_ID": {
+                            "runAfter": {
+                                "변수_정의_:_팀명": [
+                                    "Succeeded"
+                                ]
+                            },
+                            "type": "InitializeVariable",
+                            "inputs": {
+                                "variables": [
+                                    {
+                                        "name": "TitleQueryId",
+                                        "type": "string",
+                                        "value": "52ec8bb8-7071-44d9-b10f-c93556d3a24b"
+                                    }
+                                ]
+                            }
+                        },
+                        "변수_정의_:_카운터": {
+                            "runAfter": {
+                                "변수_정의_:_보고용_데이터_배열": [
+                                    "Succeeded"
+                                ]
+                            },
+                            "type": "InitializeVariable",
+                            "inputs": {
+                                "variables": [
+                                    {
+                                        "name": "Cnt",
+                                        "type": "integer",
+                                        "value": 0
+                                    }
+                                ]
+                            }
+                        },
+                        "변수_정의_:_팀명": {
+                            "runAfter": {
+                                "변수_정의_:_DevOps_프로젝트명": [
+                                    "Succeeded"
+                                ]
+                            },
+                            "type": "InitializeVariable",
+                            "inputs": {
+                                "variables": [
+                                    {
+                                        "name": "TeamName",
+                                        "type": "string",
+                                        "value": "CSA%20Team"
+                                    }
+                                ]
+                            }
+                        },
+                        "변수_초기화": {
+                            "runAfter": {
+                                "변수_정의_:_제목_조회_URL": [
+                                    "Succeeded"
+                                ]
+                            },
+                            "type": "InitializeVariable",
+                            "inputs": {
+                                "variables": [
+                                    {
+                                        "name": "Cnt2",
+                                        "type": "integer",
+                                        "value": "@length(variables('WorkItemRelationList'))"
+                                    }
+                                ]
+                            }
+                        },
+                        "변수_초기화_2": {
+                            "runAfter": {
+                                "변수_설정": [
+                                    "Succeeded"
+                                ]
+                            },
+                            "type": "InitializeVariable",
+                            "inputs": {
+                                "variables": [
+                                    {
+                                        "name": "TitleResponse",
+                                        "type": "object"
+                                    }
+                                ]
+                            }
+                        },
+                        "변수_초기화_3": {
+                            "runAfter": {
+                                "변수_초기화_2": [
+                                    "Succeeded"
+                                ]
+                            },
+                            "type": "InitializeVariable",
+                            "inputs": {
+                                "variables": [
+                                    {
+                                        "name": "TitleList",
+                                        "type": "array"
+                                    }
+                                ]
+                            }
+                        },
+                        "변수_초기화_4": {
+                            "runAfter": {
+                                "다음_시간까지:_2": [
+                                    "Succeeded"
+                                ]
+                            },
+                            "type": "InitializeVariable",
+                            "inputs": {
+                                "variables": [
+                                    {
+                                        "name": "ReportString",
+                                        "type": "string",
+                                        "value": "@{variables('ReporterName')} 금일 업무 계획입니다."
+                                    }
+                                ]
+                            }
+                        },
+                        "주말_처리_조건": {
+                            "actions": {
+                                "종료": {
+                                    "runAfter": {},
+                                    "type": "Terminate",
+                                    "inputs": {
+                                        "runStatus": "Succeeded"
+                                    }
+                                }
+                            },
+                            "runAfter": {
+                                "변수_정의_:_오늘_일자_요일_번호_설정": [
+                                    "Succeeded"
+                                ]
+                            },
+                            "expression": {
+                                "or": [
+                                    {
+                                        "equals": [
+                                            "@variables('WeekDateNum')",
+                                            6
+                                        ]
+                                    },
+                                    {
+                                        "equals": [
+                                            "@variables('WeekDateNum')",
+                                            7
+                                        ]
+                                    },
+                                    {
+                                        "equals": [
+                                            "@variables('WeekDateNum')",
+                                            0
+                                        ]
+                                    }
+                                ]
+                            },
+                            "type": "If"
+                        }
+                    },
+                    "outputs": {}
+                }
+            }
+        }
+    ]
+}
