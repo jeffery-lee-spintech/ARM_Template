@@ -27,7 +27,7 @@
                 "description": "보고 시간 (분 : 0~59)"
             }
         },
-        "보고자명": {
+        "reporterName2": {
             "type": "String",
             "metadata": {
                 "description": "보고자명"
@@ -108,7 +108,7 @@
                                     {
                                         "name": "ReporterName",
                                         "type": "string",
-                                        "value": "[parameters('보고자명')]"
+                                        "value": "[parameters('reporterName2')]"
                                     }
                                 ]
                             },
