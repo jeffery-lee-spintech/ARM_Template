@@ -1,0 +1,142 @@
+{
+    "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+    "contentVersion": "1.0.0.0",
+    "parameters": {
+        "logicAppName": {
+            "defaultValue": "lga-daily-csa-teams-report",
+            "type": "String",
+            "metadata": {
+              "description": "논리 앱 이름"
+            }
+        },
+        "reportHour": {
+            "defaultValue": "8",
+            "type": "String",
+			"minLength": 1,
+			"maxLength": 2,
+            "metadata": {
+                "description": "보고 시간 (시: 0~23)"
+            }
+        },
+        "reportMinute": {
+            "defaultValue": "55",
+            "type": "String",
+		"minLength": 1,
+			"maxLength": 2,
+            "metadata": {
+                "description": "보고 시간 (분 : 0~59)"
+            }
+        },
+        "보고자명": {
+            "type": "String",
+            "metadata": {
+                "description": "보고자명"
+            }
+        },
+        "personalAccessToken": {
+            "type": "securestring",
+            "metadata": {
+                "description": "DevOps PAT"
+            }
+        }
+    },
+    "variables": {},
+    "resources": [
+        {
+            "type": "Microsoft.Logic/workflows",
+            "apiVersion": "2017-07-01",
+            "name": "[parameters('logicAppName')]",
+            "location": "Korea Central",
+            "tags": {
+                "resource-group": "rg-teams-report"
+            },
+            "properties": {
+                "state": "Disabled",
+                "definition": {
+                    "$schema": "https://schema.management.azure.com/providers/Microsoft.Logic/schemas/2016-06-01/workflowdefinition.json#",
+                    "contentVersion": "1.0.0.0",
+                    "parameters": {
+                        "$connections": {
+                            "defaultValue": {},
+                            "type": "Object"
+                        }
+                    },
+                    "triggers": {
+                        "되풀이": {
+                            "recurrence": {
+                                "frequency": "Week",
+                                "interval": 1,
+                                "schedule": {
+                                    "hours": [
+                                        "[parameters('reportHour')]"
+                                    ],
+                                    "minutes": [
+                                        "[parameters('reportMinute')]"
+                                    ],
+                                    "weekDays": [
+                                        "Monday",
+                                        "Tuesday",
+                                        "Wednesday",
+                                        "Thursday",
+                                        "Friday"
+                                    ]
+                                },
+                                "timeZone": "Korea Standard Time"
+                            },
+                            "evaluatedRecurrence": {
+                                "frequency": "Day",
+                                "interval": 1,
+                                "schedule": {
+                                    "hours": [
+                                        "[parameters('reportHour')]"
+                                    ],
+                                    "minutes": [
+                                        "[parameters('reportMinute')]"
+                                    ]
+                                },
+                                "timeZone": "Korea Standard Time"
+                            },
+                            "type": "Recurrence"
+                        }
+                    },
+                    "actions": {
+                        "변수_정의_:_보고자명": {
+                            "runAfter": {},
+                            "type": "InitializeVariable",
+                            "inputs": {
+                                "variables": [
+                                    {
+                                        "name": "ReporterName",
+                                        "type": "string",
+                                        "value": "[parameters('보고자명')]"
+                                    }
+                                ]
+                            },
+                            "description": "이 부분만 수정해 주세요"
+                        },
+                        "변수_정의_:_PAT": {
+                            "runAfter": {
+                                "변수_정의_:_보고자명": [
+                                    "Succeeded"
+                                ]
+                            },
+                            "type": "InitializeVariable",
+                            "inputs": {
+                                "variables": [
+                                    {
+                                        "name": "PersonalAccessToken",
+                                        "type": "string",
+                                        "value": "[parameters('personalAccessToken')]"
+                                    }
+                                ]
+                            },
+                            "description": "이 부분만 수정해 주세요"
+                        }
+                    },
+                    "outputs": {}
+                }
+            }
+        }
+    ]
+}
+
