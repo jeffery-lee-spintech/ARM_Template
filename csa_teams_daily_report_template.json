@@ -5,7 +5,7 @@
         "logicAppName": {
             "defaultValue": "lga-daily-csa-teams-report",
             "type": "String",
-						"metadata": {
+            "metadata": {
               "description": "논리 앱 이름"
             }
         },
@@ -21,7 +21,7 @@
         "reportMinute": {
             "defaultValue": "55",
             "type": "String",
-			"minLength": 1,
+		"minLength": 1,
 			"maxLength": 2,
             "metadata": {
                 "description": "보고 시간 (분 : 0~59)"
