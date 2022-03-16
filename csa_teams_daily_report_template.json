@@ -4,14 +4,17 @@
     "parameters": {
         "logicAppName": {
             "defaultValue": "lga-daily-csa-teams-report",
-            "type": "String",
+            "minLength": 1,
+            "maxLength": 80,
+             "type": "string",
             "metadata": {
               "description": "논리 앱 이름"
             }
         },
         "reportHour": {
             "defaultValue": "8",
-            "type": "String",
+            "allowedValues": ["0", "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13", "14", "15", "16", "17", "18", "19", "20", "21", "22", "23"],
+            "type": "string",
 			"minLength": 1,
 			"maxLength": 2,
             "metadata": {
@@ -19,37 +22,59 @@
             }
         },
         "reportMinute": {
-            "defaultValue": "55",
-            "type": "String",
-		"minLength": 1,
-			"maxLength": 2,
+            "defaultValue": 55,
+            "type": "int",
+            "minValue": 0,
+            "maxValue": 59,
             "metadata": {
                 "description": "보고 시간 (분 : 0~59)"
             }
         },
         "reporterName": {
-            "type": "String",
+            "type": "string",
             "metadata": {
                 "description": "보고자명"
             }
         },
         "personalAccessToken": {
             "type": "securestring",
+            "defaultValue": "",
             "metadata": {
                 "description": "DevOps PAT"
+            }
+        },
+        "emailAddress": {
+            "type": "string",
+            "defaultValue": "",
+            "metadata": {
+               "description": "사용자 이메일 (팀즈 및 오피스 계정)"
+            }
+         },
+         "office365ConnectionName": {
+           "type": "string",
+           "defaultValue": "api-con-office365",
+           "metadata": {
+              "description": "오피스 API 연결 이름"
+           }
+        },
+        "teamsConnectionName": {
+            "type": "string",
+            "defaultValue": "api-con-teams",
+            "metadata": {
+               "description": "팀즈 API 연결 이름"
+            }
+        },
+        "offDutyKeyword": {
+            "type": "string",
+            "defaultValue": "연차,연가,휴가",
+            "metadata": {
+               "description": "휴가 키워드 (쉼표\",\"로 분리)"
             }
         }
     },
     "variables": {},
     "resources": [
         {
-            "type": "Microsoft.Logic/workflows",
-            "apiVersion": "2017-07-01",
-            "name": "[parameters('logicAppName')]",
-            "location": "Korea Central",
-            "tags": {
-                "resource-group": "rg-teams-report"
-            },
             "properties": {
                 "state": "Disabled",
                 "definition": {
@@ -57,14 +82,14 @@
                     "contentVersion": "1.0.0.0",
                     "parameters": {
                         "$connections": {
-                            "defaultValue": {},
-                            "type": "Object"
+                        "defaultValue": {},
+                        "type": "Object"
                         }
                     },
                     "triggers": {
                         "되풀이": {
                             "recurrence": {
-                                "frequency": "Day",
+                                "frequency": "Week",
                                 "interval": 1,
                                 "schedule": {
                                     "hours": [
@@ -72,6 +97,13 @@
                                     ],
                                     "minutes": [
                                         "[parameters('reportMinute')]"
+                                    ],
+                                    "weekDays": [
+                                        "Monday",
+                                        "Tuesday",
+                                        "Wednesday",
+                                        "Thursday",
+                                        "Friday"
                                     ]
                                 },
                                 "timeZone": "Korea Standard Time"
@@ -93,13 +125,444 @@
                         }
                     },
                     "actions": {
-                        "Work_Item_Response_List_구조_Json_구문_분석": {
+                        "변수_정의_:_오늘일자_설정": {
+                            "inputs": {
+                                "variables": [
+                                    {
+                                        "name": "TodayStr",
+                                        "type": "string",
+                                        "value": "@convertFromUtc(utcNow(), 'Korea Standard Time')"
+                                    }
+                                ]
+                            },
+                            "runAfter": {},
+                            "type": "InitializeVariable"
+                        },
+                        "HTTP_:_공휴일정보_조회": {
+                            "inputs": {
+                                "method": "GET",
+                                "uri": "https://stacsateam.blob.core.windows.net/logic-app-template/holiday-info.json"
+                            },
                             "runAfter": {
-                                "변수_정의_:_Work_Item_Response": [
+                                "변수_정의_:_오늘일자_설정": [
                                     "Succeeded"
                                 ]
                             },
-                            "type": "ParseJson",
+                            "type": "Http"
+                        },
+                        "JSON_구문_분석_-_공휴일정보_조회": {
+                            "inputs": {
+                                "content": "@body('HTTP_:_공휴일정보_조회')",
+                                "schema": {
+                                    "properties": {
+                                        "dateKind": {
+                                            "type": "string"
+                                        },
+                                        "dateName": {
+                                            "type": "string"
+                                        },
+                                        "hasJongSung": {
+                                            "type": "string"
+                                        },
+                                        "isHoliday": {
+                                            "type": "string"
+                                        },
+                                        "locdate": {
+                                            "type": "string"
+                                        },
+                                        "seq": {
+                                            "type": "string"
+                                        }
+                                    },
+                                    "type": "object"
+                                }
+                            },
+                            "runAfter": {
+                                "HTTP_:_공휴일정보_조회": [
+                                    "Succeeded"
+                                ]
+                            },
+                            "type": "ParseJson"
+                        },
+                        "조건_-_공휴일정보_확인": {
+                            "actions": {
+                                "종료_-_공휴일": {
+                                    "inputs": {
+                                        "runStatus": "Cancelled"
+                                    },
+                                    "runAfter": {},
+                                    "type": "Terminate"
+                                }
+                            },
+                            "expression": {
+                                "and": [
+                                    {
+                                        "not": {
+                                            "equals": [
+                                                "@body('JSON_구문_분석_-_공휴일정보_조회')?['dateName']",
+                                                "@null"
+                                            ]
+                                        }
+                                    }
+                                ]
+                            },
+                            "runAfter": {
+                                "JSON_구문_분석_-_공휴일정보_조회": [
+                                    "Succeeded"
+                                ]
+                            },
+                            "type": "If"
+                        },
+                        "이벤트의_일정_보기_가져오기(V3)": {
+                            "inputs": {
+                                "host": {
+                                    "connection": {
+                                        "name": "@parameters('$connections')['office365']['connectionId']"
+                                    }
+                                },
+                                "method": "get",
+                                "path": "/datasets/calendars/v3/tables/items/calendarview",
+                                "queries": {
+                                    "$filter": "isAllDay eq true",
+                                    "calendarId": "",
+                                    "endDateTimeUtc": "@{formatDateTime(convertFromUtc(adddays(utcnow(), 0), 'Korea Standard Time'), 'yyyy-MM-dd')}",
+                                    "startDateTimeUtc": "@{formatDateTime(convertFromUtc(utcNow(), 'Korea Standard Time'), 'yyyy-MM-dd')}"
+                                }
+                            },
+                            "runAfter": {
+                                "조건_-_공휴일정보_확인": [
+                                    "Succeeded"
+                                ]
+                            },
+                            "type": "ApiConnection"
+                        },
+                        "변수_초기화_-_휴가여부": {
+                            "inputs": {
+                                "variables": [
+                                    {
+                                        "name": "휴가여부",
+                                        "type": "boolean",
+                                        "value": false
+                                    }
+                                ]
+                            },
+                            "runAfter": {
+                                "이벤트의_일정_보기_가져오기(V3)": [
+                                    "Succeeded"
+                                ]
+                            },
+                            "type": "InitializeVariable"
+                        },
+                        "변수_초기화_:_휴가키워드": {
+                            "inputs": {
+                                "variables": [
+                                    {
+                                        "name": "휴가키워드",
+                                        "type": "string",
+                                        "value": "[parameters('offDutyKeyword')]"
+                                    }
+                                ]
+                            },
+                            "runAfter": {
+                                "변수_초기화_-_휴가여부": [
+                                    "Succeeded"
+                                ]
+                            },
+                            "type": "InitializeVariable"
+                        },
+                        "변수_초기화_:_휴가키워드목록": {
+                            "inputs": {
+                                "variables": [
+                                    {
+                                        "name": "휴가키워드목록",
+                                        "type": "array"
+                                    }
+                                ]
+                            },
+                            "runAfter": {
+                                "변수_초기화_:_휴가키워드": [
+                                    "Succeeded"
+                                ]
+                            },
+                            "type": "InitializeVariable"
+                        },
+                        "For_each_:_휴가키워드목록_정리": {
+                            "actions": {
+                                "배열_변수에_추가": {
+                                    "inputs": {
+                                        "name": "휴가키워드목록",
+                                        "value": "@trim(items('For_each_:_휴가키워드목록_정리'))"
+                                    },
+                                    "runAfter": {},
+                                    "type": "AppendToArrayVariable"
+                                }
+                            },
+                            "foreach": "@split(variables('휴가키워드'), ',')",
+                            "runAfter": {
+                                "변수_초기화_:_휴가키워드목록": [
+                                    "Succeeded"
+                                ]
+                            },
+                            "type": "Foreach"
+                        },
+                        "For_each_-_Outlook_일정": {
+                            "actions": {
+                                "For_each_-_휴가키워드목록체크": {
+                                    "actions": {
+                                        "조건_2": {
+                                            "actions": {
+                                                "변수_설정": {
+                                                    "inputs": {
+                                                        "name": "휴가여부",
+                                                        "value": true
+                                                    },
+                                                    "runAfter": {},
+                                                    "type": "SetVariable"
+                                                }
+                                            },
+                                            "expression": {
+                                                "and": [
+                                                    {
+                                                        "contains": [
+                                                            "@items('For_each_-_Outlook_일정')?['subject']",
+                                                            "@items('For_each_-_휴가키워드목록체크')"
+                                                        ]
+                                                    }
+                                                ]
+                                            },
+                                            "runAfter": {},
+                                            "type": "If"
+                                        }
+                                    },
+                                    "foreach": "@variables('휴가키워드목록')",
+                                    "runAfter": {},
+                                    "type": "Foreach"
+                                }
+                            },
+                            "foreach": "@body('이벤트의_일정_보기_가져오기(V3)')?['value']",
+                            "runAfter": {
+                                "For_each_:_휴가키워드목록_정리": [
+                                    "Succeeded"
+                                ]
+                            },
+                            "type": "Foreach"
+                        },
+                        "조건_-_휴가여부_확인_후_참이면_종료": {
+                            "actions": {
+                                "종료_-_휴가": {
+                                    "inputs": {
+                                        "runStatus": "Succeeded"
+                                    },
+                                    "runAfter": {},
+                                    "type": "Terminate"
+                                }
+                            },
+                            "expression": {
+                                "and": [
+                                    {
+                                        "equals": [
+                                            "@variables('휴가여부')",
+                                            true
+                                        ]
+                                    }
+                                ]
+                            },
+                            "runAfter": {
+                                "For_each_-_Outlook_일정": [
+                                    "Succeeded"
+                                ]
+                            },
+                            "type": "If"
+                        },
+                        "변수_정의_:_보고자명": {
+                            "description": "이 부분만 수정해 주세요",
+                            "inputs": {
+                                "variables": [
+                                    {
+                                        "name": "ReporterName",
+                                        "type": "string",
+                                        "value": "parameters('reporterName')"
+                                    }
+                                ]
+                            },
+                            "runAfter": {
+                                "조건_-_휴가여부_확인_후_참이면_종료": [
+                                    "Succeeded"
+                                ]
+                            },
+                            "type": "InitializeVariable"
+                        },
+                        "변수_정의_:_PAT": {
+                            "description": "이 부분만 수정해 주세요",
+                            "inputs": {
+                                "variables": [
+                                    {
+                                        "name": "PersonalAccessToken",
+                                        "type": "string",
+                                        "value": "parameters('personalAccessToken')"
+                                    }
+                                ]
+                            },
+                            "runAfter": {
+                                "변수_정의_:_보고자명": [
+                                    "Succeeded"
+                                ]
+                            },
+                            "type": "InitializeVariable"
+                        },
+                        "변수_정의_:_PAT_Base_64_Encoding": {
+                            "inputs": {
+                                "variables": [
+                                    {
+                                        "name": "Base64EncodePat",
+                                        "type": "string",
+                                        "value": "@{base64(concat(':',variables('PersonalAccessToken')))}"
+                                    }
+                                ]
+                            },
+                            "runAfter": {
+                                "변수_정의_:_PAT": [
+                                    "Succeeded"
+                                ]
+                            },
+                            "type": "InitializeVariable"
+                        },
+                        "변수_정의_:_DevOps_API_URL": {
+                            "inputs": {
+                                "variables": [
+                                    {
+                                        "name": "ApiUrl",
+                                        "type": "string",
+                                        "value": "https://dev.azure.com"
+                                    }
+                                ]
+                            },
+                            "runAfter": {
+                                "변수_정의_:_PAT_Base_64_Encoding": [
+                                    "Succeeded"
+                                ]
+                            },
+                            "type": "InitializeVariable"
+                        },
+                        "변수_정의_:_API_Version": {
+                            "inputs": {
+                                "variables": [
+                                    {
+                                        "name": "ApiVersion",
+                                        "type": "string",
+                                        "value": "6.1-preview.2"
+                                    }
+                                ]
+                            },
+                            "runAfter": {
+                                "변수_정의_:_DevOps_API_URL": [
+                                    "Succeeded"
+                                ]
+                            },
+                            "type": "InitializeVariable"
+                        },
+                        "변수_정의_:_DevOps조직명": {
+                            "inputs": {
+                                "variables": [
+                                    {
+                                        "name": "DevOpsOrg",
+                                        "type": "string",
+                                        "value": "spintechcsa"
+                                    }
+                                ]
+                            },
+                            "runAfter": {
+                                "변수_정의_:_API_Version": [
+                                    "Succeeded"
+                                ]
+                            },
+                            "type": "InitializeVariable"
+                        },
+                        "변수_정의_:_DevOps_프로젝트명": {
+                            "inputs": {
+                                "variables": [
+                                    {
+                                        "name": "DevOpsProjectName",
+                                        "type": "string",
+                                        "value": "SPIN_CSA_Common_Project"
+                                    }
+                                ]
+                            },
+                            "runAfter": {
+                                "변수_정의_:_DevOps조직명": [
+                                    "Succeeded"
+                                ]
+                            },
+                            "type": "InitializeVariable"
+                        },
+                        "변수_정의_:_팀명": {
+                            "inputs": {
+                                "variables": [
+                                    {
+                                        "name": "TeamName",
+                                        "type": "string",
+                                        "value": "CSA%20Team"
+                                    }
+                                ]
+                            },
+                            "runAfter": {
+                                "변수_정의_:_DevOps_프로젝트명": [
+                                    "Succeeded"
+                                ]
+                            },
+                            "type": "InitializeVariable"
+                        },
+                        "변수_정의_:_조회_쿼리_ID": {
+                            "inputs": {
+                                "variables": [
+                                    {
+                                        "name": "TitleQueryId",
+                                        "type": "string",
+                                        "value": "52ec8bb8-7071-44d9-b10f-c93556d3a24b"
+                                    }
+                                ]
+                            },
+                            "runAfter": {
+                                "변수_정의_:_팀명": [
+                                    "Succeeded"
+                                ]
+                            },
+                            "type": "InitializeVariable"
+                        },
+                        "Work_Item_조회": {
+                            "inputs": {
+                                "headers": {
+                                    "Accept": "application/json",
+                                    "Authorization": "Basic @{variables('Base64EncodePat')}"
+                                },
+                                "method": "GET",
+                                "uri": "@{variables('ApiUrl')}/@{variables('DevOpsOrg')}/@{variables('DevOpsProjectName')}/@{variables('TeamName')}/_apis/wit/wiql/@{variables('TitleQueryId')}?api-version=@{variables('ApiVersion')}"
+                            },
+                            "runAfter": {
+                                "변수_정의_:_조회_쿼리_ID": [
+                                    "Succeeded"
+                                ]
+                            },
+                            "type": "Http"
+                        },
+                        "변수_정의_:_Work_Item_Response": {
+                            "inputs": {
+                                "variables": [
+                                    {
+                                        "name": "WorkItemResponse",
+                                        "type": "object",
+                                        "value": "@body('Work_Item_조회')"
+                                    }
+                                ]
+                            },
+                            "runAfter": {
+                                "Work_Item_조회": [
+                                    "Succeeded"
+                                ]
+                            },
+                            "type": "InitializeVariable"
+                        },
+                        "Work_Item_Response_List_구조_Json_구문_분석": {
                             "inputs": {
                                 "content": "@variables('WorkItemResponse')",
                                 "schema": {
@@ -193,69 +656,186 @@
                                     },
                                     "type": "object"
                                 }
-                            }
-                        },
-                        "Work_Item_조회": {
+                            },
                             "runAfter": {
-                                "변수_정의_:_조회_쿼리_ID": [
+                                "변수_정의_:_Work_Item_Response": [
                                     "Succeeded"
                                 ]
                             },
-                            "type": "Http",
-                            "inputs": {
-                                "headers": {
-                                    "Accept": "application/json",
-                                    "Authorization": "Basic @{variables('Base64EncodePat')}"
-                                },
-                                "method": "GET",
-                                "uri": "@{variables('ApiUrl')}/@{variables('DevOpsOrg')}/@{variables('DevOpsProjectName')}/@{variables('TeamName')}/_apis/wit/wiql/@{variables('TitleQueryId')}?api-version=@{variables('ApiVersion')}"
-                            }
+                            "type": "ParseJson"
                         },
-                        "다음_시간까지:": {
+                        "변수_정의_:_WorkItemRelationList": {
+                            "inputs": {
+                                "variables": [
+                                    {
+                                        "name": "WorkItemRelationList",
+                                        "type": "array",
+                                        "value": "@body('Work_Item_Response_List_구조_Json_구문_분석')?['workItemRelations']"
+                                    }
+                                ]
+                            },
+                            "runAfter": {
+                                "Work_Item_Response_List_구조_Json_구문_분석": [
+                                    "Succeeded"
+                                ]
+                            },
+                            "type": "InitializeVariable"
+                        },
+                        "변수_정의_:_보고용_데이터_배열": {
+                            "inputs": {
+                                "variables": [
+                                    {
+                                        "name": "ReportWorkItemArr",
+                                        "type": "array"
+                                    }
+                                ]
+                            },
+                            "runAfter": {
+                                "변수_정의_:_WorkItemRelationList": [
+                                    "Succeeded"
+                                ]
+                            },
+                            "type": "InitializeVariable"
+                        },
+                        "변수_초기화_:_토픽카운터": {
+                            "inputs": {
+                                "variables": [
+                                    {
+                                        "name": "TopicCnt",
+                                        "type": "integer",
+                                        "value": 1
+                                    }
+                                ]
+                            },
+                            "runAfter": {
+                                "변수_정의_:_보고용_데이터_배열": [
+                                    "Succeeded"
+                                ]
+                            },
+                            "type": "InitializeVariable"
+                        },
+                        "변수_정의_:_카운터": {
+                            "inputs": {
+                                "variables": [
+                                    {
+                                        "name": "Cnt",
+                                        "type": "integer",
+                                        "value": 0
+                                    }
+                                ]
+                            },
+                            "runAfter": {
+                                "변수_초기화_:_토픽카운터": [
+                                    "Succeeded"
+                                ]
+                            },
+                            "type": "InitializeVariable"
+                        },
+                        "변수_정의_:_제목_응답용_객체": {
+                            "inputs": {
+                                "variables": [
+                                    {
+                                        "name": "TitleResponseObject",
+                                        "type": "object"
+                                    }
+                                ]
+                            },
+                            "runAfter": {
+                                "변수_정의_:_카운터": [
+                                    "Succeeded"
+                                ]
+                            },
+                            "type": "InitializeVariable"
+                        },
+                        "변수_정의_:_제목_조회_URL": {
+                            "inputs": {
+                                "variables": [
+                                    {
+                                        "name": "TitleUrl",
+                                        "type": "string"
+                                    }
+                                ]
+                            },
+                            "runAfter": {
+                                "변수_정의_:_제목_응답용_객체": [
+                                    "Succeeded"
+                                ]
+                            },
+                            "type": "InitializeVariable"
+                        },
+                        "변수_초기화_:_루프카운터": {
+                            "inputs": {
+                                "variables": [
+                                    {
+                                        "name": "Cnt2",
+                                        "type": "integer",
+                                        "value": "@length(variables('WorkItemRelationList'))"
+                                    }
+                                ]
+                            },
+                            "runAfter": {
+                                "변수_정의_:_제목_조회_URL": [
+                                    "Succeeded"
+                                ]
+                            },
+                            "type": "InitializeVariable"
+                        },
+                        "다음_시간까지_:_보고용배열정리": {
                             "actions": {
-                                "변수_증가_4": {
+                                "변수_증가_-_카운터_증가": {
+                                    "inputs": {
+                                        "name": "Cnt",
+                                        "value": 1
+                                    },
                                     "runAfter": {
                                         "조건": [
                                             "Succeeded"
                                         ]
                                     },
-                                    "type": "IncrementVariable",
-                                    "inputs": {
-                                        "name": "Cnt",
-                                        "value": 1
-                                    }
+                                    "type": "IncrementVariable"
                                 },
                                 "조건": {
                                     "actions": {
-                                        "배열_변수에_추가": {
-                                            "runAfter": {},
-                                            "type": "AppendToArrayVariable",
+                                        "배열_변수에_추가_-_보고용배열_토픽_내용_추가": {
                                             "inputs": {
                                                 "name": "ReportWorkItemArr",
                                                 "value": {
-                                                    "idx": "@iterationIndexes('다음_시간까지:')",
-                                                    "indent": "<br>",
-                                                    "url": "@variables('WorkItemRelationList')[iterationIndexes('다음_시간까지:')]?['target']?['url']",
-                                                    "workItemId": "@variables('WorkItemRelationList')[iterationIndexes('다음_시간까지:')]?['target']?['id']"
+                                                    "idx": "@iterationIndexes('다음_시간까지_:_보고용배열정리')",
+                                                    "indent": "@concat('<br>', variables('TopicCnt'), '. ')",
+                                                    "url": "@variables('WorkItemRelationList')[iterationIndexes('다음_시간까지_:_보고용배열정리')]?['target']?['url']",
+                                                    "workItemId": "@variables('WorkItemRelationList')[iterationIndexes('다음_시간까지_:_보고용배열정리')]?['target']?['id']"
                                                 }
-                                            }
+                                            },
+                                            "runAfter": {},
+                                            "type": "AppendToArrayVariable"
+                                        },
+                                        "변수_증가_:_토픽카운터": {
+                                            "inputs": {
+                                                "name": "TopicCnt",
+                                                "value": 1
+                                            },
+                                            "runAfter": {
+                                                "배열_변수에_추가_-_보고용배열_토픽_내용_추가": [
+                                                    "Succeeded"
+                                                ]
+                                            },
+                                            "type": "IncrementVariable"
                                         }
                                     },
-                                    "runAfter": {},
                                     "else": {
                                         "actions": {
-                                            "배열_변수에_추가_2": {
-                                                "runAfter": {},
-                                                "type": "AppendToArrayVariable",
+                                            "배열_변수에_추가_-_보고용배열_상세_내용_추가": {
                                                 "inputs": {
                                                     "name": "ReportWorkItemArr",
                                                     "value": {
-                                                        "idx": "@iterationIndexes('다음_시간까지:')",
+                                                        "idx": "@iterationIndexes('다음_시간까지_:_보고용배열정리')",
                                                         "indent": "<br>　　- ",
-                                                        "url": "@variables('WorkItemRelationList')[iterationIndexes('다음_시간까지:')]?['target']?['url']",
-                                                        "workItemId": "@variables('WorkItemRelationList')[iterationIndexes('다음_시간까지:')]?['target']?['id']"
+                                                        "url": "@variables('WorkItemRelationList')[iterationIndexes('다음_시간까지_:_보고용배열정리')]?['target']?['url']",
+                                                        "workItemId": "@variables('WorkItemRelationList')[iterationIndexes('다음_시간까지_:_보고용배열정리')]?['target']?['id']"
                                                     }
-                                                }
+                                                },
+                                                "runAfter": {},
+                                                "type": "AppendToArrayVariable"
                                             }
                                         }
                                     },
@@ -263,32 +843,75 @@
                                         "and": [
                                             {
                                                 "equals": [
-                                                    "@variables('WorkItemRelationList')[iterationIndexes('다음_시간까지:')]?['source']",
+                                                    "@variables('WorkItemRelationList')[iterationIndexes('다음_시간까지_:_보고용배열정리')]?['source']",
                                                     "@null"
                                                 ]
                                             }
                                         ]
                                     },
+                                    "runAfter": {},
                                     "type": "If"
                                 }
-                            },
-                            "runAfter": {
-                                "변수_초기화": [
-                                    "Succeeded"
-                                ]
                             },
                             "expression": "@lessOrEquals(variables('Cnt2'), variables('Cnt'))",
                             "limit": {
                                 "count": 60,
                                 "timeout": "PT1H"
                             },
+                            "runAfter": {
+                                "변수_초기화_:_루프카운터": [
+                                    "Succeeded"
+                                ]
+                            },
                             "type": "Until"
+                        },
+                        "변수_설정_-_보고용_배열_처리_후_카운터_재설정": {
+                            "inputs": {
+                                "name": "Cnt",
+                                "value": 0
+                            },
+                            "runAfter": {
+                                "다음_시간까지_:_보고용배열정리": [
+                                    "Succeeded"
+                                ]
+                            },
+                            "type": "SetVariable"
+                        },
+                        "변수_초기화_:_제목응답객체": {
+                            "inputs": {
+                                "variables": [
+                                    {
+                                        "name": "TitleResponse",
+                                        "type": "object"
+                                    }
+                                ]
+                            },
+                            "runAfter": {
+                                "변수_설정_-_보고용_배열_처리_후_카운터_재설정": [
+                                    "Succeeded"
+                                ]
+                            },
+                            "type": "InitializeVariable"
+                        },
+                        "변수_초기화_:_제목배열": {
+                            "inputs": {
+                                "variables": [
+                                    {
+                                        "name": "TitleList",
+                                        "type": "array"
+                                    }
+                                ]
+                            },
+                            "runAfter": {
+                                "변수_초기화_:_제목응답객체": [
+                                    "Succeeded"
+                                ]
+                            },
+                            "type": "InitializeVariable"
                         },
                         "다음_시간까지:_2": {
                             "actions": {
-                                "HTTP": {
-                                    "runAfter": {},
-                                    "type": "Http",
+                                "HTTP_:_제목조회": {
                                     "inputs": {
                                         "headers": {
                                             "Accept": "application/json",
@@ -296,15 +919,11 @@
                                         },
                                         "method": "GET",
                                         "uri": "@{variables('ReportWorkItemArr')[iterationIndexes('다음_시간까지:_2')]?['url']}?fields=System.Title&api-version=@{variables('ApiVersion')}"
-                                    }
+                                    },
+                                    "runAfter": {},
+                                    "type": "Http"
                                 },
                                 "JSON_구문_분석": {
-                                    "runAfter": {
-                                        "변수_설정_2": [
-                                            "Succeeded"
-                                        ]
-                                    },
-                                    "type": "ParseJson",
                                     "inputs": {
                                         "content": "@variables('TitleResponse')",
                                         "schema": {
@@ -390,468 +1009,64 @@
                                             },
                                             "type": "object"
                                         }
-                                    }
+                                    },
+                                    "runAfter": {
+                                        "변수_설정_:_제목응답객체": [
+                                            "Succeeded"
+                                        ]
+                                    },
+                                    "type": "ParseJson"
                                 },
-                                "배열_변수에_추가_3": {
+                                "배열_변수에_추가_:_제목배열": {
+                                    "inputs": {
+                                        "name": "TitleList",
+                                        "value": "@body('JSON_구문_분석')?['fields']?['System.Title']"
+                                    },
                                     "runAfter": {
                                         "JSON_구문_분석": [
                                             "Succeeded"
                                         ]
                                     },
-                                    "type": "AppendToArrayVariable",
-                                    "inputs": {
-                                        "name": "TitleList",
-                                        "value": "@body('JSON_구문_분석')?['fields']?['System.Title']"
-                                    }
+                                    "type": "AppendToArrayVariable"
                                 },
-                                "변수_설정_2": {
-                                    "runAfter": {
-                                        "HTTP": [
-                                            "Succeeded"
-                                        ]
-                                    },
-                                    "type": "SetVariable",
+                                "변수_설정_:_제목응답객체": {
                                     "inputs": {
                                         "name": "TitleResponse",
-                                        "value": "@body('HTTP')"
-                                    }
-                                },
-                                "변수_증가": {
+                                        "value": "@body('HTTP_:_제목조회')"
+                                    },
                                     "runAfter": {
-                                        "배열_변수에_추가_3": [
+                                        "HTTP_:_제목조회": [
                                             "Succeeded"
                                         ]
                                     },
-                                    "type": "IncrementVariable",
+                                    "type": "SetVariable"
+                                },
+                                "변수_증가_:_카운터_증가처리2": {
                                     "inputs": {
                                         "name": "Cnt",
                                         "value": 1
-                                    }
+                                    },
+                                    "runAfter": {
+                                        "배열_변수에_추가_:_제목배열": [
+                                            "Succeeded"
+                                        ]
+                                    },
+                                    "type": "IncrementVariable"
                                 }
-                            },
-                            "runAfter": {
-                                "변수_초기화_3": [
-                                    "Succeeded"
-                                ]
                             },
                             "expression": "@lessOrEquals(variables('Cnt2'), variables('Cnt'))",
                             "limit": {
                                 "count": 20,
                                 "timeout": "PT1H"
                             },
-                            "type": "Until"
-                        },
-                        "다음_시간까지:_3": {
-                            "actions": {
-                                "문자열_변수에_추가": {
-                                    "runAfter": {},
-                                    "type": "AppendToStringVariable",
-                                    "inputs": {
-                                        "name": "ReportString",
-                                        "value": "@variables('ReportWorkItemArr')[iterationIndexes('다음_시간까지:_3')]?['indent']"
-                                    }
-                                },
-                                "문자열_변수에_추가_2": {
-                                    "runAfter": {
-                                        "문자열_변수에_추가": [
-                                            "Succeeded"
-                                        ]
-                                    },
-                                    "type": "AppendToStringVariable",
-                                    "inputs": {
-                                        "name": "ReportString",
-                                        "value": "@variables('TitleList')[iterationIndexes('다음_시간까지:_3')]"
-                                    }
-                                },
-                                "변수_증가_2": {
-                                    "runAfter": {
-                                        "문자열_변수에_추가_2": [
-                                            "Succeeded"
-                                        ]
-                                    },
-                                    "type": "IncrementVariable",
-                                    "inputs": {
-                                        "name": "Cnt",
-                                        "value": 1
-                                    }
-                                }
-                            },
                             "runAfter": {
-                                "변수_설정_3": [
+                                "변수_초기화_:_제목배열": [
                                     "Succeeded"
                                 ]
-                            },
-                            "expression": "@lessOrEquals(variables('Cnt2'), variables('Cnt'))",
-                            "limit": {
-                                "count": 20,
-                                "timeout": "PT1H"
                             },
                             "type": "Until"
                         },
-                        "변수_설정": {
-                            "runAfter": {
-                                "다음_시간까지:": [
-                                    "Succeeded"
-                                ]
-                            },
-                            "type": "SetVariable",
-                            "inputs": {
-                                "name": "Cnt",
-                                "value": 0
-                            }
-                        },
-                        "변수_설정_3": {
-                            "runAfter": {
-                                "변수_초기화_4": [
-                                    "Succeeded"
-                                ]
-                            },
-                            "type": "SetVariable",
-                            "inputs": {
-                                "name": "Cnt",
-                                "value": 0
-                            }
-                        },
-                        "변수_정의_:_API_Version": {
-                            "runAfter": {
-                                "변수_정의_:_DevOps_API_URL": [
-                                    "Succeeded"
-                                ]
-                            },
-                            "type": "InitializeVariable",
-                            "inputs": {
-                                "variables": [
-                                    {
-                                        "name": "ApiVersion",
-                                        "type": "string",
-                                        "value": "6.1-preview.2"
-                                    }
-                                ]
-                            }
-                        },
-                        "변수_정의_:_DevOps_API_URL": {
-                            "runAfter": {
-                                "변수_정의_:_PAT_Base_64_Encoding": [
-                                    "Succeeded"
-                                ]
-                            },
-                            "type": "InitializeVariable",
-                            "inputs": {
-                                "variables": [
-                                    {
-                                        "name": "ApiUrl",
-                                        "type": "string",
-                                        "value": "https://dev.azure.com"
-                                    }
-                                ]
-                            }
-                        },
-                        "변수_정의_:_DevOps_프로젝트명": {
-                            "runAfter": {
-                                "변수_정의_:_DevOps조직명": [
-                                    "Succeeded"
-                                ]
-                            },
-                            "type": "InitializeVariable",
-                            "inputs": {
-                                "variables": [
-                                    {
-                                        "name": "DevOpsProjectName",
-                                        "type": "string",
-                                        "value": "SPIN_CSA_Common_Project"
-                                    }
-                                ]
-                            }
-                        },
-                        "변수_정의_:_DevOps조직명": {
-                            "runAfter": {
-                                "변수_정의_:_API_Version": [
-                                    "Succeeded"
-                                ]
-                            },
-                            "type": "InitializeVariable",
-                            "inputs": {
-                                "variables": [
-                                    {
-                                        "name": "DevOpsOrg",
-                                        "type": "string",
-                                        "value": "spintechcsa"
-                                    }
-                                ]
-                            }
-                        },
-                        "변수_정의_:_PAT": {
-                            "runAfter": {
-                                "변수_정의_:_보고자명": [
-                                    "Succeeded"
-                                ]
-                            },
-                            "type": "InitializeVariable",
-                            "inputs": {
-                                "variables": [
-                                    {
-                                        "name": "PersonalAccessToken",
-                                        "type": "string",
-                                        "value": "[parameters('personalAccessToken')]"
-                                    }
-                                ]
-                            },
-                            "description": "이 부분만 수정해 주세요"
-                        },
-                        "변수_정의_:_PAT_Base_64_Encoding": {
-                            "runAfter": {
-                                "변수_정의_:_PAT": [
-                                    "Succeeded"
-                                ]
-                            },
-                            "type": "InitializeVariable",
-                            "inputs": {
-                                "variables": [
-                                    {
-                                        "name": "Base64EncodePat",
-                                        "type": "string",
-                                        "value": "@{base64(concat(':',variables('PersonalAccessToken')))}"
-                                    }
-                                ]
-                            }
-                        },
-                        "변수_정의_:_WorkItemRelationList": {
-                            "runAfter": {
-                                "Work_Item_Response_List_구조_Json_구문_분석": [
-                                    "Succeeded"
-                                ]
-                            },
-                            "type": "InitializeVariable",
-                            "inputs": {
-                                "variables": [
-                                    {
-                                        "name": "WorkItemRelationList",
-                                        "type": "array",
-                                        "value": "@body('Work_Item_Response_List_구조_Json_구문_분석')?['workItemRelations']"
-                                    }
-                                ]
-                            }
-                        },
-                        "변수_정의_:_Work_Item_Response": {
-                            "runAfter": {
-                                "Work_Item_조회": [
-                                    "Succeeded"
-                                ]
-                            },
-                            "type": "InitializeVariable",
-                            "inputs": {
-                                "variables": [
-                                    {
-                                        "name": "WorkItemResponse",
-                                        "type": "object",
-                                        "value": "@body('Work_Item_조회')"
-                                    }
-                                ]
-                            }
-                        },
-                        "변수_정의_:_보고용_데이터_배열": {
-                            "runAfter": {
-                                "변수_정의_:_WorkItemRelationList": [
-                                    "Succeeded"
-                                ]
-                            },
-                            "type": "InitializeVariable",
-                            "inputs": {
-                                "variables": [
-                                    {
-                                        "name": "ReportWorkItemArr",
-                                        "type": "array"
-                                    }
-                                ]
-                            }
-                        },
-                        "변수_정의_:_보고자명": {
-                            "runAfter": {
-                                "주말_처리_조건": [
-                                    "Succeeded"
-                                ]
-                            },
-                            "type": "InitializeVariable",
-                            "inputs": {
-                                "variables": [
-                                    {
-                                        "name": "ReporterName",
-                                        "type": "string",
-                                        "value": "[parameters('reporterName')]"
-                                    }
-                                ]
-                            },
-                            "description": "이 부분만 수정해 주세요"
-                        },
-                        "변수_정의_:_오늘_일자_요일_번호_설정": {
-                            "runAfter": {
-                                "변수_정의_:_오늘일자_설정": [
-                                    "Succeeded"
-                                ]
-                            },
-                            "type": "InitializeVariable",
-                            "inputs": {
-                                "variables": [
-                                    {
-                                        "name": "WeekDateNum",
-                                        "type": "integer",
-                                        "value": "@dayOfWeek(variables('TodayStr'))"
-                                    }
-                                ]
-                            }
-                        },
-                        "변수_정의_:_오늘일자_설정": {
-                            "runAfter": {},
-                            "type": "InitializeVariable",
-                            "inputs": {
-                                "variables": [
-                                    {
-                                        "name": "TodayStr",
-                                        "type": "string",
-                                        "value": "@convertFromUtc(utcNow(), 'Korea Standard Time')"
-                                    }
-                                ]
-                            }
-                        },
-                        "변수_정의_:_제목_응답용_객체": {
-                            "runAfter": {
-                                "변수_정의_:_카운터": [
-                                    "Succeeded"
-                                ]
-                            },
-                            "type": "InitializeVariable",
-                            "inputs": {
-                                "variables": [
-                                    {
-                                        "name": "TitleResponseObject",
-                                        "type": "object"
-                                    }
-                                ]
-                            }
-                        },
-                        "변수_정의_:_제목_조회_URL": {
-                            "runAfter": {
-                                "변수_정의_:_제목_응답용_객체": [
-                                    "Succeeded"
-                                ]
-                            },
-                            "type": "InitializeVariable",
-                            "inputs": {
-                                "variables": [
-                                    {
-                                        "name": "TitleUrl",
-                                        "type": "string"
-                                    }
-                                ]
-                            }
-                        },
-                        "변수_정의_:_조회_쿼리_ID": {
-                            "runAfter": {
-                                "변수_정의_:_팀명": [
-                                    "Succeeded"
-                                ]
-                            },
-                            "type": "InitializeVariable",
-                            "inputs": {
-                                "variables": [
-                                    {
-                                        "name": "TitleQueryId",
-                                        "type": "string",
-                                        "value": "52ec8bb8-7071-44d9-b10f-c93556d3a24b"
-                                    }
-                                ]
-                            }
-                        },
-                        "변수_정의_:_카운터": {
-                            "runAfter": {
-                                "변수_정의_:_보고용_데이터_배열": [
-                                    "Succeeded"
-                                ]
-                            },
-                            "type": "InitializeVariable",
-                            "inputs": {
-                                "variables": [
-                                    {
-                                        "name": "Cnt",
-                                        "type": "integer",
-                                        "value": 0
-                                    }
-                                ]
-                            }
-                        },
-                        "변수_정의_:_팀명": {
-                            "runAfter": {
-                                "변수_정의_:_DevOps_프로젝트명": [
-                                    "Succeeded"
-                                ]
-                            },
-                            "type": "InitializeVariable",
-                            "inputs": {
-                                "variables": [
-                                    {
-                                        "name": "TeamName",
-                                        "type": "string",
-                                        "value": "CSA%20Team"
-                                    }
-                                ]
-                            }
-                        },
-                        "변수_초기화": {
-                            "runAfter": {
-                                "변수_정의_:_제목_조회_URL": [
-                                    "Succeeded"
-                                ]
-                            },
-                            "type": "InitializeVariable",
-                            "inputs": {
-                                "variables": [
-                                    {
-                                        "name": "Cnt2",
-                                        "type": "integer",
-                                        "value": "@length(variables('WorkItemRelationList'))"
-                                    }
-                                ]
-                            }
-                        },
-                        "변수_초기화_2": {
-                            "runAfter": {
-                                "변수_설정": [
-                                    "Succeeded"
-                                ]
-                            },
-                            "type": "InitializeVariable",
-                            "inputs": {
-                                "variables": [
-                                    {
-                                        "name": "TitleResponse",
-                                        "type": "object"
-                                    }
-                                ]
-                            }
-                        },
-                        "변수_초기화_3": {
-                            "runAfter": {
-                                "변수_초기화_2": [
-                                    "Succeeded"
-                                ]
-                            },
-                            "type": "InitializeVariable",
-                            "inputs": {
-                                "variables": [
-                                    {
-                                        "name": "TitleList",
-                                        "type": "array"
-                                    }
-                                ]
-                            }
-                        },
-                        "변수_초기화_4": {
-                            "runAfter": {
-                                "다음_시간까지:_2": [
-                                    "Succeeded"
-                                ]
-                            },
-                            "type": "InitializeVariable",
+                        "변수_초기화_:_보고문자열": {
                             "inputs": {
                                 "variables": [
                                     {
@@ -860,51 +1075,158 @@
                                         "value": "@{variables('ReporterName')} 금일 업무 계획입니다."
                                     }
                                 ]
-                            }
-                        },
-                        "주말_처리_조건": {
-                            "actions": {
-                                "종료": {
-                                    "runAfter": {},
-                                    "type": "Terminate",
-                                    "inputs": {
-                                        "runStatus": "Succeeded"
-                                    }
-                                }
                             },
                             "runAfter": {
-                                "변수_정의_:_오늘_일자_요일_번호_설정": [
+                                "다음_시간까지:_2": [
                                     "Succeeded"
                                 ]
                             },
-                            "expression": {
-                                "or": [
-                                    {
-                                        "equals": [
-                                            "@variables('WeekDateNum')",
-                                            6
-                                        ]
-                                    },
-                                    {
-                                        "equals": [
-                                            "@variables('WeekDateNum')",
-                                            7
-                                        ]
-                                    },
-                                    {
-                                        "equals": [
-                                            "@variables('WeekDateNum')",
-                                            0
-                                        ]
-                                    }
+                            "type": "InitializeVariable"
+                        },
+                        "변수_설정_:_카운터_초기화": {
+                            "inputs": {
+                                "name": "Cnt",
+                                "value": 0
+                            },
+                            "runAfter": {
+                                "변수_초기화_:_보고문자열": [
+                                    "Succeeded"
                                 ]
                             },
-                            "type": "If"
+                            "type": "SetVariable"
+                        },
+                        "다음_시간까지:_보고문자열정리": {
+                            "actions": {
+                                "문자열_변수에_추가": {
+                                    "inputs": {
+                                        "name": "ReportString",
+                                        "value": "@variables('ReportWorkItemArr')[iterationIndexes('다음_시간까지:_보고문자열정리')]?['indent']"
+                                    },
+                                    "runAfter": {},
+                                    "type": "AppendToStringVariable"
+                                },
+                                "문자열_변수에_추가_2": {
+                                    "inputs": {
+                                        "name": "ReportString",
+                                        "value": "@variables('TitleList')[iterationIndexes('다음_시간까지:_보고문자열정리')]"
+                                    },
+                                    "runAfter": {
+                                        "문자열_변수에_추가": [
+                                            "Succeeded"
+                                        ]
+                                    },
+                                    "type": "AppendToStringVariable"
+                                },
+                                "변수_증가_2": {
+                                    "inputs": {
+                                        "name": "Cnt",
+                                        "value": 1
+                                    },
+                                    "runAfter": {
+                                        "문자열_변수에_추가_2": [
+                                            "Succeeded"
+                                        ]
+                                    },
+                                    "type": "IncrementVariable"
+                                }
+                            },
+                            "expression": "@lessOrEquals(variables('Cnt2'), variables('Cnt'))",
+                            "limit": {
+                                "count": 20,
+                                "timeout": "PT1H"
+                            },
+                            "runAfter": {
+                                "변수_설정_:_카운터_초기화": [
+                                    "Succeeded"
+                                ]
+                            },
+                            "type": "Until"
+                        },
+                        "채팅_또는_채널에서_메시지_게시": {
+                            "inputs": {
+                                "body": {
+                                    "messageBody": "<p>@{variables('ReportString')}</p>",
+                                    "recipient": "19:3df83b2c5b87403097bf0fcf95bf12ea@thread.v2"
+                                },
+                                "host": {
+                                    "connection": {
+                                        "name": "@parameters('$connections')['teams']['connectionId']"
+                                    }
+                                },
+                                "method": "post",
+                                "path": "/beta/teams/conversation/message/poster/@{encodeURIComponent('User')}/location/@{encodeURIComponent('Group chat')}"
+                            },
+                            "runAfter": {
+                                "다음_시간까지:_보고문자열정리": [
+                                    "Succeeded"
+                                ]
+                            },
+                            "type": "ApiConnection"
                         }
                     },
                     "outputs": {}
+                },
+                "parameters": {
+                    "$connections": {
+                        "value": {
+                            "office365": {
+                                "id": "[concat(subscription().id, '/providers/Microsoft.Web/locations/', resourceGroup().location, '/managedApis/', 'office365')]",
+                                "connectionId": "[resourceId('Microsoft.Web/connections', parameters('office365ConnectionName'))]",
+                            "connectionName": "[parameters('office365ConnectionName')]"
+                            },
+                            "teams": {
+                                "id": "[concat(subscription().id, '/providers/Microsoft.Web/locations/', resourceGroup().location, '/managedApis/teams')]",
+                                "connectionId": "[concat(subscription().id, '/resourceGroups/', resourceGroup().name, '/providers/Microsoft.Web/connections/', parameters('teamsConnectionName'))]",
+                                "connectionName": "[parameters('teamsConnectionName')]"
+                            }
+                        }
+                    }
+                },
+                "accessControl": {}
+            },
+            "name": "[parameters('logicAppName')]",
+            "type": "Microsoft.Logic/workflows",
+            "location": "[resourceGroup().location]",
+            "tags": {
+               "displayName": "LogicApp"
+            },
+            "apiVersion": "2016-06-01",
+            "dependsOn": [
+               "[resourceId('Microsoft.Web/connections', parameters('office365ConnectionName'))]",
+               "[resourceId('Microsoft.Web/connections', parameters('teamsConnectionName'))]"
+            ]
+        },
+        {
+           "type": "Microsoft.Web/connections",
+           "apiVersion": "2016-06-01",
+           "name": "[parameters('office365ConnectionName')]",
+           "location": "[resourceGroup().location]",
+           "properties": {
+              "api": {
+                  "id": "[concat(subscription().id, '/providers/Microsoft.Web/locations/', resourceGroup().location, '/managedApis/', 'office365')]"
+              },
+              "displayName": "[parameters('emailAddress')]"
+           }
+        },
+        {
+            "type": "Microsoft.Web/connections",
+            "apiVersion": "2016-06-01",
+            "name": "[parameters('teamsConnectionName')]",
+            "location": "[resourceGroup().location]",
+            "kind": "V1",
+            "properties": {
+                "displayName": "[parameters('emailAddress')]",
+                "customParameterValues": {},
+                "nonSecretParameterValues": {},
+                "api": {
+                    "name": "teams",
+                    "displayName": "Microsoft Teams",
+                    "description": "Microsoft Teams enables you to get all your content, tools and conversations in the Team workspace with Office 365.",
+                    "id": "[concat(subscription().id, '/providers/Microsoft.Web/locations/', resourceGroup().location, '/managedApis/teams')]",
+                    "type": "Microsoft.Web/locations/managedApis"
                 }
             }
         }
-    ]
+    ],
+    "outputs": {}
 }
