@@ -1146,7 +1146,7 @@
                             "inputs": {
                                 "body": {
                                     "messageBody": "<p>@{variables('ReportString')}</p>",
-                                    "recipient": "19:3df83b2c5b87403097bf0fcf95bf12ea@thread.v2"
+                                    "recipient": ""
                                 },
                                 "host": {
                                     "connection": {
