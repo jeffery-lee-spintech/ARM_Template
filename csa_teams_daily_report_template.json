@@ -109,7 +109,7 @@
                                 "timeZone": "Korea Standard Time"
                             },
                             "evaluatedRecurrence": {
-                                "frequency": "Day",
+                                "frequency": "Week",
                                 "interval": 1,
                                 "schedule": {
                                     "hours": [
@@ -117,6 +117,13 @@
                                     ],
                                     "minutes": [
                                         "[parameters('reportMinute')]"
+                                    ],
+                                    "weekDays": [
+                                        "Monday",
+                                        "Tuesday",
+                                        "Wednesday",
+                                        "Thursday",
+                                        "Friday"
                                     ]
                                 },
                                 "timeZone": "Korea Standard Time"
