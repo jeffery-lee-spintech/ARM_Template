@@ -381,7 +381,7 @@
                                     {
                                         "name": "ReporterName",
                                         "type": "string",
-                                        "value": "parameters('reporterName')"
+                                        "value": "[parameters('reporterName')]"
                                     }
                                 ]
                             },
@@ -399,7 +399,7 @@
                                     {
                                         "name": "PersonalAccessToken",
                                         "type": "string",
-                                        "value": "parameters('personalAccessToken')"
+                                        "value": "[parameters('personalAccessToken')]"
                                     }
                                 ]
                             },
